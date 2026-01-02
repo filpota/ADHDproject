@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ADHD</title>
+  <style>
+    body { font-family: system-ui, "Noto Sans KR", sans-serif; background:#f9fafb; padding:24px; }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; gap:12px; }
+    .h1 { font-size:22px; font-weight:800; }
+    button { padding:10px 12px; border-radius:10px; border:1px solid #e5e7eb; background:#111827; color:#fff; font-weight:800; cursor:pointer; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; }
+    .row { padding:14px 16px; border-top:1px solid #e5e7eb; cursor:pointer; }
+    .row:first-child{ border-top:0; }
+    .row:hover{ background:#fafafa; }
+    .top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+    .title { font-weight:800; font-size:18px; }
+    .date { color:#6b7280; font-size:14px; white-space:nowrap; font-variant-numeric: tabular-nums; }
+    .emoji { margin-top:8px; font-size:18px; }
+    .empty { padding:14px 16px; color:#6b7280; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="h1">🍀</div>
+      <button id="todayBtn">오늘 작성</button>
+    </div>
+
+    <section class="card" id="list"></section>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "adhd_archives";
+
+    function todayString() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function loadItems() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    }
+
+    function escapeHtml(str) {
+      return str
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function render() {
+      const listEl = document.getElementById("list");
+      const items = loadItems();
+
+      if (items.length === 0) {
+        listEl.innerHTML = `<div class="empty">아직 기록이 없어요. “오늘 작성” 눌러서 하나 만들어봐요.</div>`;
+        return;
+      }
+
+      listEl.innerHTML = items.map(item => `
+        <article class="row" data-date="${item.date}">
+          <div class="top">
+            <div class="title">${escapeHtml(item.title || "(제목 없음)")}</div>
+            <div class="date">${item.date}</div>
+          </div>
+          <div class="emoji">${item.mood || "🙂"}</div>
+        </article>
+      `).join("");
+
+      // 클릭하면 해당 날짜 기록 수정 화면으로 이동
+      listEl.querySelectorAll(".row").forEach(row => {
+        row.addEventListener("click", () => {
+          const date = row.dataset.date;
+          window.location.href = `day.html?date=${encodeURIComponent(date)}`;
+        });
+      });
+    }
+
+    document.getElementById("todayBtn").addEventListener("click", () => {
+      const date = todayString();
+      window.location.href = `day.html?date=${encodeURIComponent(date)}`;
+    });
+
+    render();
+  </script>
+</body>
+</html>
