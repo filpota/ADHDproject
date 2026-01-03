@@ -62,13 +62,13 @@
       border:1px solid var(--border);
       border-radius:12px;
       overflow:auto;
-      max-height: 260px; /* 이미지처럼 스크롤 */
+      max-height: 260px;
       background:#fff;
     }
     table{ border-collapse:collapse; width:100%; min-width:520px; }
     th, td{ border-bottom:1px solid var(--border); padding:10px; font-size:14px; }
     th{ text-align:left; background:#fafafa; position:sticky; top:0; z-index:1; }
-    td.time{ color:var(--muted); width:90px; white-space:nowrap; }
+    td.time{ color:var(--muted); width:110px; white-space:nowrap; } /* 시간표 폭 살짝 넓힘 */
     td input{ width:100%; padding:8px 10px; border-radius:10px; border:1px solid var(--border); }
 
     details{
@@ -85,6 +85,16 @@
     }
     details summary::-webkit-details-marker{ display:none; }
     .hr{ height:1px; background:var(--border); margin:14px 0; }
+
+    /* 추가: 작은 버튼/행 */
+    .miniRow{ display:flex; gap:8px; align-items:center; margin:10px 0 8px; }
+    .miniRow input[type="text"]{ padding:8px 10px; }
+    .danger{ color:#b91c1c; border-color:#fecaca; background:#fff; }
+    .danger:hover{ background:#fff5f5; }
+    .small{ padding:8px 10px; border-radius:10px; font-weight:900; }
+
+    /* ✅ 에너지 카드 정렬 맞추기용 (루틴 카드의 miniRow 높이만큼 확보) */
+    .spacerRow{ opacity:0; pointer-events:none; }
   </style>
 </head>
 
@@ -124,6 +134,23 @@
 
     <div class="hr"></div>
 
+    <!-- (추가) 오늘 체크리스트 -->
+    <section class="card">
+      <h2>오늘 체크리스트</h2>
+      <div class="sub">TOP 3 말고도 자잘한 것들 여기에 다 던져두기</div>
+
+      <div class="miniRow">
+        <input type="text" id="checkInput" placeholder="체크리스트 추가 (예: 빨래 돌리기)" />
+        <button class="small" id="addCheckBtn" type="button">추가</button>
+      </div>
+
+      <div class="checklist" id="checkList">
+        <!-- JS로 생성 -->
+      </div>
+    </section>
+
+    <div class="hr"></div>
+
     <!-- 2) 시간표 + 원챙(걱정) -->
     <section class="grid2">
       <div class="card">
@@ -153,11 +180,18 @@
 
     <div class="hr"></div>
 
-    <!-- 3) 에너지 + 기본 루틴 -->
+    <!-- 3) 에너지 + 사용자 루틴 -->
     <section class="grid2">
       <div class="card">
         <h2>에너지 레벨 체크</h2>
         <div class="sub">오늘 내 에너지에 맞는 난이도 선택</div>
+
+        <!-- ✅ 루틴 카드의 miniRow 높이와 맞추기 위한 보이지 않는 스페이서 -->
+        <div class="miniRow spacerRow">
+          <input type="text" value="spacer" />
+          <button class="small" type="button">추가</button>
+          <button class="small" type="button">초기화</button>
+        </div>
 
         <div class="checklist">
           <label class="check"><input type="radio" name="energy" value="high"> high</label>
@@ -168,10 +202,16 @@
 
       <div class="card">
         <h2>기본 루틴 체크</h2>
-        <div class="sub">작게라도 챙기면 체감이 달라짐</div>
+        <div class="sub">루틴은 사용자가 만들고, 매일 그대로 적용됨</div>
+
+        <div class="miniRow">
+          <input type="text" id="routineInput" placeholder="루틴 추가 (예: 아침 약 먹기)" />
+          <button class="small" id="addRoutineBtn" type="button">추가</button>
+          <button class="small danger" id="resetRoutineBtn" type="button" title="루틴 목록을 초기값으로 되돌림">초기화</button>
+        </div>
 
         <div class="checklist" id="routineList">
-          <!-- JS로 기본 항목 생성 -->
+          <!-- JS로 사용자 루틴 생성 -->
         </div>
       </div>
     </section>
@@ -188,6 +228,8 @@
 
   <script>
     const STORAGE_KEY = "adhd_archives";
+    const ROUTINES_KEY = "adhd_user_routines_v1";
+    const CHECKLIST_PREFIX = "adhd_daily_checklist_";
 
     // ---------- 날짜 ----------
     function todayString() {
@@ -200,6 +242,9 @@
     function getDateFromQuery() {
       const params = new URLSearchParams(window.location.search);
       return params.get("date") || todayString();
+    }
+    function checklistKey(date){
+      return CHECKLIST_PREFIX + date;
     }
 
     // ---------- 저장/불러오기 ----------
@@ -214,9 +259,9 @@
       return items.find(item => item.date === date);
     }
 
-    // ---------- UI 생성: 시간표 / 루틴 ----------
-    const TIME_SLOTS = ["7-9","9-11","11-1","1-3","3-5","5-7","7-9","9-11"];
-    const DEFAULT_ROUTINES = ["아침 약 먹기", "아침 도장 찍기", "홈트 10분", "10분 명상", "침대에 물병 가져다 놓기"];
+    // ---------- UI 생성: 시간표 ----------
+    // ✅ (수정 1) 7시~12시, 1시간 간격
+    const TIME_SLOTS = ["7-8","8-9","9-10","10-11","11-12"];
 
     function buildTimetable() {
       const tbody = document.getElementById("timetableBody");
@@ -228,14 +273,120 @@
       `).join("");
     }
 
+    // =============================
+    // 사용자 루틴
+    // =============================
+    const SEED_ROUTINES = [];
+
+    function loadRoutineList() {
+      const raw = localStorage.getItem(ROUTINES_KEY);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) return parsed;
+        } catch (e) {}
+      }
+      localStorage.setItem(ROUTINES_KEY, JSON.stringify(SEED_ROUTINES));
+      return [...SEED_ROUTINES];
+    }
+
+    function saveRoutineList(list) {
+      localStorage.setItem(ROUTINES_KEY, JSON.stringify(list));
+    }
+
     function buildRoutines() {
       const box = document.getElementById("routineList");
-      box.innerHTML = DEFAULT_ROUTINES.map((label, idx) => `
-        <label class="check">
+      const routines = loadRoutineList();
+
+      if (routines.length === 0) {
+        box.innerHTML = `<div class="sub" style="margin:0;">루틴이 비어있어. 위에서 추가해줘!</div>`;
+        return;
+      }
+
+      box.innerHTML = routines.map((label, idx) => `
+        <div class="check">
           <input type="checkbox" id="rt_${idx}">
-          <span>${label}</span>
-        </label>
+          <span style="flex:1;">${label}</span>
+          <button type="button" class="small danger" data-del-rt="${idx}">삭제</button>
+        </div>
       `).join("");
+
+      box.querySelectorAll("[data-del-rt]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const i = Number(btn.dataset.delRt);
+          const list = loadRoutineList();
+          list.splice(i, 1);
+          saveRoutineList(list);
+          buildRoutines();
+        });
+      });
+    }
+
+    // =============================
+    // 오늘 체크리스트
+    // =============================
+    function loadChecklist(date) {
+      const raw = localStorage.getItem(checklistKey(date));
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {}
+      return [];
+    }
+    function saveChecklist(date, list) {
+      localStorage.setItem(checklistKey(date), JSON.stringify(list));
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function collectChecklistFromUI() {
+      const rows = document.querySelectorAll("#checkList .check");
+      const list = [];
+      rows.forEach((row, idx) => {
+        const doneEl = document.getElementById(`ck_${idx}`);
+        const textEl = document.getElementById(`ck_text_${idx}`);
+        if (!textEl) return;
+        const text = (textEl.value || "").trim();
+        if (text.length === 0) return;
+        list.push({ text, done: !!doneEl?.checked });
+      });
+      return list;
+    }
+
+    function buildChecklist(date, listFromArchive) {
+      const box = document.getElementById("checkList");
+      const items = Array.isArray(listFromArchive) ? listFromArchive : loadChecklist(date);
+
+      if (items.length === 0) {
+        box.innerHTML = `<div class="sub" style="margin:0;">오늘 체크리스트가 비어있어. 위에서 추가해줘!</div>`;
+        return;
+      }
+
+      box.innerHTML = items.map((it, idx) => `
+        <div class="check">
+          <input type="checkbox" id="ck_${idx}" ${it.done ? "checked" : ""}>
+          <input type="text" id="ck_text_${idx}" value="${escapeHtml(it.text || "")}" placeholder="체크리스트">
+          <button type="button" class="small danger" data-del-ck="${idx}">삭제</button>
+        </div>
+      `).join("");
+
+      box.querySelectorAll("[data-del-ck]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const i = Number(btn.dataset.delCk);
+          const current = collectChecklistFromUI();
+          current.splice(i, 1);
+          saveChecklist(date, current);
+          buildChecklist(date, current);
+        });
+      });
     }
 
     // ---------- 폼 값 모으기 ----------
@@ -253,18 +404,21 @@
       const energyEl = document.querySelector('input[name="energy"]:checked');
       const energy = energyEl ? energyEl.value : "";
 
-      const routines = DEFAULT_ROUTINES.map((label, idx) => ({
+      const routineLabels = loadRoutineList();
+      const routines = routineLabels.map((label, idx) => ({
         label,
-        done: document.getElementById(`rt_${idx}`).checked
+        done: document.getElementById(`rt_${idx}`)?.checked || false
       }));
+
+      const checklist = collectChecklistFromUI();
 
       return {
         date,
-        // 메인페이지에 보여줄 대표값(제목/이모지)도 여기서 만들기
         title: top3.find(x => x.text)?.text || "오늘 기록",
         mood: energy === "high" ? "🔥" : energy === "medium" ? "🙂" : energy === "low" ? "😐" : "🙂",
         templateData: {
           top3,
+          checklist,
           timetable,
           worriesText: document.getElementById("worriesText").value.trim(),
           worriesOpen: document.getElementById("worriesBox").open,
@@ -276,40 +430,39 @@
     }
 
     // ---------- 폼 값 채우기 ----------
-    function fillFormData(data) {
+    function fillFormData(data, date) {
       const td = data?.templateData;
       if (!td) return;
 
-      // top3
       td.top3?.forEach((x, i) => {
         const n = i + 1;
         document.getElementById(`top3_done_${n}`).checked = !!x.done;
         document.getElementById(`top3_text_${n}`).value = x.text || "";
       });
 
-      // timetable
+      buildChecklist(date, td.checklist || []);
+
       td.timetable?.forEach((row, idx) => {
         const el = document.getElementById(`tt_${idx}`);
         if (el) el.value = row.text || "";
       });
 
-      // worries
       document.getElementById("worriesText").value = td.worriesText || "";
       document.getElementById("worriesBox").open = !!td.worriesOpen;
 
-      // energy
       if (td.energy) {
         const radio = document.querySelector(`input[name="energy"][value="${td.energy}"]`);
         if (radio) radio.checked = true;
       }
 
-      // routines
-      td.routines?.forEach((r, idx) => {
+      const currentLabels = loadRoutineList();
+      const doneMap = {};
+      (td.routines || []).forEach(r => { doneMap[r.label] = !!r.done; });
+      currentLabels.forEach((label, idx) => {
         const el = document.getElementById(`rt_${idx}`);
-        if (el) el.checked = !!r.done;
+        if (el) el.checked = !!doneMap[label];
       });
 
-      // idea
       document.getElementById("ideaBox").value = td.ideaBox || "";
     }
 
@@ -320,12 +473,52 @@
     buildTimetable();
     buildRoutines();
 
-    // 기존 기록 불러오기
     const items = loadItems();
     const existing = findItemByDate(items, date);
-    if (existing) fillFormData(existing);
 
-    // 이동/저장 버튼
+    if (existing) {
+      fillFormData(existing, date);
+    } else {
+      buildChecklist(date);
+    }
+
+    // 루틴 추가/초기화
+    document.getElementById("addRoutineBtn").addEventListener("click", () => {
+      const input = document.getElementById("routineInput");
+      const label = input.value.trim();
+      if (!label) return;
+
+      const list = loadRoutineList();
+      if (list.includes(label)) {
+        alert("이미 있는 루틴이야!");
+        return;
+      }
+      list.push(label);
+      saveRoutineList(list);
+      input.value = "";
+      buildRoutines();
+    });
+
+    document.getElementById("resetRoutineBtn").addEventListener("click", () => {
+      saveRoutineList([...SEED_ROUTINES]);
+      buildRoutines();
+    });
+
+    // 체크리스트 추가
+    document.getElementById("addCheckBtn").addEventListener("click", () => {
+      const input = document.getElementById("checkInput");
+      const text = input.value.trim();
+      if (!text) return;
+
+      const current = collectChecklistFromUI();
+      current.push({ text, done: false });
+
+      saveChecklist(date, current);
+      input.value = "";
+      buildChecklist(date, current);
+    });
+
+    // 이동/저장
     document.getElementById("backBtn").addEventListener("click", () => {
       window.location.href = "index.html";
     });
@@ -335,11 +528,11 @@
       const existing = findItemByDate(items, date);
       const payload = collectFormData(date);
 
+      saveChecklist(date, payload.templateData.checklist || []);
+
       if (existing) {
-        // 수정
         Object.assign(existing, payload, { updatedAt: Date.now() });
       } else {
-        // 신규
         items.unshift({
           id: Date.now(),
           createdAt: Date.now(),
